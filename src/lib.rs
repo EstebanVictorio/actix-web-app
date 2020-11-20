@@ -27,7 +27,7 @@ struct IndexResponse {
   messages: Vec<String>,
 }
 
-
+// NOTE: last page - 77 at "Effectively working with locks"
 #[get("/")]
 fn index(state: web::Data<AppState>) -> Result<web::Json<IndexResponse>> {
   let request_count = state.request_count.get() + 1;
