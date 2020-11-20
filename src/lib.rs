@@ -3,8 +3,19 @@ extern crate actix_web;
 
 use actix_web::{ middleware, web, App, HttpRequest, HttpServer, Result };
 use serde::Serialize;
+use std::cell::Cell;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+
+static SERVER_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 
+
+struct AppState {
+  server_id: usize,
+  request_count: Cell<usize>,
+  messages: Arc<Mutex<Vec<String>>>,
+}
 pub struct MessageApp {
   port: u16,
 }
