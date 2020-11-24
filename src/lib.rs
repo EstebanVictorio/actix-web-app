@@ -2,7 +2,7 @@
 extern crate actix_web;
 
 use actix_web::{ middleware, web, App, HttpRequest, HttpServer, Result };
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::cell::Cell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -16,6 +16,20 @@ struct AppState {
   request_count: Cell<usize>,
   messages: Arc<Mutex<Vec<String>>>,
 }
+
+
+#[derive(Deserialize)]
+struct PostInput {
+  message: String,
+}
+
+#[derive(Serialize)]
+struct PostResponse {
+  server_id: usize,
+  request_count: usize,
+  message: String,
+}
+
 pub struct MessageApp {
   port: u16,
 }
@@ -27,7 +41,7 @@ struct IndexResponse {
   messages: Vec<String>,
 }
 
-// NOTE: last page - 77 at "Effectively working with locks"
+// NOTE: last page - 81 at "Receiving input"
 #[get("/")]
 fn index(state: web::Data<AppState>) -> Result<web::Json<IndexResponse>> {
   let request_count = state.request_count.get() + 1;
