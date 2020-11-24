@@ -32,7 +32,7 @@ struct IndexResponse {
 fn index(state: web::Data<AppState>) -> Result<web::Json<IndexResponse>> {
   let request_count = state.request_count.get() + 1;
   state.request_count.set(request_count);
-  let ms = state.messages.lock().unwrap();
+  let ms = state.messages.lock().unwrap(); // RAII (Resource Acquisition Is Initialization)
   
   Ok(web::Json(IndexResponse {
     server_id: state.server_id,
@@ -48,8 +48,14 @@ impl MessageApp {
 
   pub fn run(&self) -> std::io::Result<()> {
     println!("Starting listening on: http://localhost:{}", self.port);
+    let messages = Arc::new(Mutex::new(vec![]));
     HttpServer::new(move || {
       App::new()
+      .data(AppState{
+        server_id: SERVER_COUNTER.fetch_add(1,Ordering::SeqCst),
+        request_count: Cell::new(0),
+        messages: messages.clone(),
+      })
         .wrap(middleware::Logger::default())
         .service(index)
     })
