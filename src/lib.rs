@@ -41,6 +41,34 @@ struct IndexResponse {
   messages: Vec<String>,
 }
 
+
+fn post(msg:web::Json<PostInput>, state: web::Data<AppState>) -> Result<web::Json<PostResponse>> {
+  let request_count = state.request_count.get() + 1;
+  state.request_count.set(request_count);
+  let mut ms = state.messages.lock().unwrap();
+  ms.push(msg.message.clone());
+
+  Ok(web::Json(PostResponse {
+    request_count,
+    server_id: state.server_id,
+    message: msg.message.clone(),
+  }))
+}
+
+#[delete("/clear")]
+fn clear(state: web::Data<AppState>) -> Result<web::Json<IndexResponse>> {
+  let request_count = state.request_count.get() + 1;
+  state.request_count.set(request_count);
+  let mut ms = state.messages.lock().unwrap();
+  ms.clear();
+
+  Ok(web::Json(IndexResponse{
+    request_count,
+    server_id: state.server_id,
+    messages: vec![],
+  }))
+}
+
 // NOTE: last page - 81 at "Receiving input"
 #[get("/")]
 fn index(state: web::Data<AppState>) -> Result<web::Json<IndexResponse>> {
@@ -72,6 +100,12 @@ impl MessageApp {
       })
         .wrap(middleware::Logger::default())
         .service(index)
+        .service(
+          web::resource("/send")
+                      .data(web::JsonConfig::default().limit(4096))
+                      .route(web::post().to(post))
+        )
+        .service(clear)
     })
     .bind(("localhost", self.port))?
     .workers(8)
