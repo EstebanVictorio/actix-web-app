@@ -1,13 +1,18 @@
 #[macro_use]
 extern crate actix_web;
-
-use actix_web::{middleware, web, App, HttpRequest, HttpServer, Result};
+use actix_web::{
+  error::{Error, InternalError, JsonPayloadError},
+  middleware, web, App, HttpRequest, HttpResponse, HttpServer, Result,
+};
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread::current;
 
 static SERVER_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+const LOG_FORMAT: &'static str = r#""%r" %s %b "%{User-Agent}i" %D"#;
 
 struct AppState {
   server_id: usize,
@@ -25,6 +30,13 @@ struct PostResponse {
   server_id: usize,
   request_count: usize,
   message: String,
+}
+
+#[derive(Serialize)]
+struct PostError {
+  server_id: usize,
+  request_count: usize,
+  error: String,
 }
 
 pub struct MessageApp {
@@ -49,6 +61,20 @@ fn post(msg: web::Json<PostInput>, state: web::Data<AppState>) -> Result<web::Js
     server_id: state.server_id,
     message: msg.message.clone(),
   }))
+}
+
+fn post_error(err: JsonPayloadError, req: &HttpRequest) -> Error {
+  let extns = req.extensions();
+  let state = extns.get::<web::Data<AppState>>().unwrap();
+  let request_count = state.request_count.get() + 1;
+  state.request_count.set(request_count);
+  let post_error = PostError {
+    request_count,
+    server_id: state.server_id,
+    error: format!("{}", err),
+  };
+
+  InternalError::from_response(err, HttpResponse::BadRequest().json(post_error)).into()
 }
 
 #[delete("/clear")]
@@ -93,16 +119,20 @@ impl MessageApp {
           request_count: Cell::new(0),
           messages: messages.clone(),
         })
-        .wrap(middleware::Logger::default())
+        .wrap(middleware::Logger::new(LOG_FORMAT))
         .service(index)
         .service(
           web::resource("/send")
-            .data(web::JsonConfig::default().limit(4096))
+            .data(
+              web::JsonConfig::default()
+                .limit(4096)
+                .error_handler(post_error),
+            )
             .route(web::post().to(post)),
         )
         .service(clear)
     })
-    .bind(("localhost", self.port))?
+    .bind(("127.0.0.1", self.port))?
     .workers(8)
     .run()
   }
