@@ -91,7 +91,7 @@ fn clear(state: web::Data<AppState>) -> Result<web::Json<IndexResponse>> {
   }))
 }
 
-// NOTE: last page - 87 at "Receiving input"
+// NOTE: last page - 92 at "Receiving input"
 #[get("/")]
 fn index(state: web::Data<AppState>) -> Result<web::Json<IndexResponse>> {
   let request_count = state.request_count.get() + 1;
