@@ -6,9 +6,9 @@ use actix_web::{
 };
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
+use std::fmt::{Display, Formatter, Result as StdResult};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread::current;
 
 static SERVER_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -18,6 +18,17 @@ struct AppState {
   server_id: usize,
   request_count: Cell<usize>,
   messages: Arc<Mutex<Vec<String>>>,
+}
+
+impl Display for AppState {
+  fn fmt(&self, f: &mut Formatter<'_>) -> StdResult {
+    write!(
+      f,
+      "Worker ID: {}\nRequest count for this thread: {}\n",
+      self.server_id,
+      self.request_count.get(),
+    )
+  }
 }
 
 #[derive(Deserialize)]
@@ -37,6 +48,7 @@ struct PostError {
   server_id: usize,
   request_count: usize,
   error: String,
+  messages: Vec<String>,
 }
 
 pub struct MessageApp {
@@ -48,6 +60,13 @@ struct IndexResponse {
   server_id: usize,
   request_count: usize,
   messages: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct LookupResponse {
+  server_id: usize,
+  request_count: usize,
+  result: Option<String>,
 }
 
 fn post(msg: web::Json<PostInput>, state: web::Data<AppState>) -> Result<web::Json<PostResponse>> {
@@ -64,14 +83,15 @@ fn post(msg: web::Json<PostInput>, state: web::Data<AppState>) -> Result<web::Js
 }
 
 fn post_error(err: JsonPayloadError, req: &HttpRequest) -> Error {
-  let extns = req.extensions();
-  let state = extns.get::<web::Data<AppState>>().unwrap();
+  let state = req.app_data::<AppState>().unwrap();
   let request_count = state.request_count.get() + 1;
+  let ms = state.messages.lock().unwrap();
   state.request_count.set(request_count);
   let post_error = PostError {
     request_count,
     server_id: state.server_id,
     error: format!("{}", err),
+    messages: ms.clone(),
   };
 
   InternalError::from_response(err, HttpResponse::BadRequest().json(post_error)).into()
@@ -88,6 +108,19 @@ fn clear(state: web::Data<AppState>) -> Result<web::Json<IndexResponse>> {
     request_count,
     server_id: state.server_id,
     messages: vec![],
+  }))
+}
+
+#[get("/lookup/{index}")]
+fn lookup(state: web::Data<AppState>, idx: web::Path<usize>) -> Result<web::Json<LookupResponse>> {
+  let request_count = state.request_count.get() + 1;
+  state.request_count.set(request_count);
+  let ms = state.messages.lock().unwrap();
+  let result = ms.get(idx.into_inner()).cloned();
+  Ok(web::Json(LookupResponse {
+    result,
+    request_count,
+    server_id: state.server_id,
   }))
 }
 
@@ -131,6 +164,7 @@ impl MessageApp {
             .route(web::post().to(post)),
         )
         .service(clear)
+        .service(lookup)
     })
     .bind(("127.0.0.1", self.port))?
     .workers(8)
